@@ -1,0 +1,6 @@
+[submodule "uthash"]
+	path = uthash
+	url = https://github.com/troydhanson/uthash.git
+[submodule "lib/net-snmp"]
+	path = lib/net-snmp
+	url = https://github.com/net-snmp/net-snmp.git

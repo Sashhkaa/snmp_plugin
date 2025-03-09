@@ -1,0 +1,7 @@
+/my_program
+/my_agent
+*.exe
+*.out
+*.o
+uthash
+lib

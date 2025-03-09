@@ -1,0 +1,17 @@
+for ubuntu/debian: 
+sudo apt install gcc make libsnmp-dev snmpd
+for centos/rhel
+sudo yum install gcc make net-snmp-devel net-snmp
+
+cd snmp_plugin
+make
+
+настройка snmpd
+sudo systemctl status snmpd
+sudo systemctl start snmpd
+
+в файле /etc/snmp/snmpd.conf: 
+createUser MD5User MD5 "authpass123"
+rwuser MD5User auth
+
+sudo systemctl restart snmpd

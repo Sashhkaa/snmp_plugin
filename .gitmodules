@@ -4,3 +4,6 @@
 [submodule "lib/net-snmp"]
 	path = lib/net-snmp
 	url = https://github.com/net-snmp/net-snmp.git
+[submodule "tiny-aes"]
+	path = tiny-aes
+	url = https://github.com/kokke/tiny-AES-c.git

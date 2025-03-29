@@ -9,7 +9,29 @@
 /* TODO: сделать че то с этим кринжем. */
 const char *passphrase = "SecurePass123";
 
+/* uthash hashmap initialization. */
 struct conn_hash *conns_hash = NULL;
+
+/* callback function for response messages. */
+static void
+asynch_response(int operation, struct snmp_session *sp, int reqid,
+                struct snmp_pdu *pdu, void *data)
+{
+    struct client_conn *conn = (struct session *)data;
+    struct snmp_pdu *response;
+
+    if (operation == RECEIVED_MESSAGE) {
+        get_info(response, conn->curve);
+    } else {
+        /* TODO: check retries. */
+        snmp_log(LOG_ERR, "Error while receiving info. \n");
+        detach_from_connections_list(conn->conn_id);
+    }    
+
+    /* initilize new run. */
+    /* TODO: timer. */
+    send_pdu(conn);
+}
 
 static void
 send_pdu(struct client_conn *client)
@@ -21,7 +43,7 @@ send_pdu(struct client_conn *client)
 
     pdu = snmp_pdu_create(SNMP_MSG_GET);
 
-    snprintf(oid_str, MAX_OID_LEN, ".1.3.6.1.2.1.2.2.1.%s.%d",
+    snprintf(oid_str, MAX_OID_LEN, ".1.3.6.1.2.1.2.2.1.%d.%d",
                       client->sett.direction == TX_TRANSMIT ? "16" : "10",
                       client->sett.int_id);
 
@@ -99,7 +121,9 @@ init_connection(struct client_conn *client)
     setup_security_param(&client->session);
 
     client->ss = snmp_open(&client->session);
-    
+
+    client->session.callback = asynch_response;
+
     if (!client->ss) {
         snmp_log(LOG_ERR, "Не удалось открыть SNMP-сессию. \n");
         exit(1);
@@ -109,7 +133,7 @@ init_connection(struct client_conn *client)
 void
 destroy_connection()
 {
- 
+
 }
 
 static void
@@ -186,14 +210,30 @@ destroy_client(struct client_conn *client)
     free(client);   
 }
 
+static unsigned int
+get_clients_num()
+{
+    return HASH_COUNT(conns_hash);
+}
+
 void
 main_loop()
 {
+    struct conn_hash *current, tmp;
 
+    HASH_ITER(hh, conns_hash, current, tmp) {
+
+    }
 }
 
 void
 destroy_connections()
 {
-    free(conns_hash);
+    struct conn_hash *current, tmp;
+
+    HASH_ITER(hh, conns_hash, current, tmp) {
+        HASH_DEL(conns_hash, current);
+        free(current->client->ss);
+        free(current);
+    }
 }

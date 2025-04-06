@@ -102,7 +102,7 @@ create_conneection(struct ctl_context *ctx)
                                   client->sett.direction,
                                   client->sett.int_id);
 
-    attach_to_connections_list(client->conn_id);
+    attach_to_connections_list(client);
 
     init_connection(client);
 }

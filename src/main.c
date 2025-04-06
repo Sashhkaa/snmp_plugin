@@ -23,7 +23,7 @@ main()
 
     /* main loop. */
     while (keep_running) {
-
+        main_loop();
     }
 
     destroy_connections();

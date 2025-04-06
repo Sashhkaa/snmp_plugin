@@ -1,68 +1,75 @@
-#include "agent.h"
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include "algo.h"
 
 void
-update_critical(double rho, CriticalPoints *c,
-                int n, ArrivalHistory *history)
+init_algorithm(struct curve *curve, double T, double sigma)
 {
-    double condition = rho * (history->arrival_times[n] - 
-                              history->arrival_times[c->lower]) + 
-                       c->lower;
+    curve->count = 0;
+    curve->next_index = 0;
     
-    if (n < condition) {
-        c->lower = n;
-    } else if (n > condition) {
-        c->upper = n;
-    }
-}
-
-bool
-is_lower_constrained(double T, double rho, int n, int c,
-                    ArrivalHistory *history)
-{
-    return n >= rho * (history->arrival_times[n] -
-                       history->arrival_times[c] - T) + c;
-}
-
-bool
-is_upper_constrained(double sigma, double rho,
-                     int n, int c, ArrivalHistory *history)
-{
-    return n <= rho * (history->arrival_times[n] -
-                       history->arrival_times[c]) +
-                sigma + c;
-}
-
-double
-compute_rho0(double *xn, int length)
-{
-    if (length < 2)
-        return 1.0;
-    return (double)(xn[length - 1] - xn[0]) / (length - 1);
+    curve->n = 0;
+    curve->c = 0;
+    curve->c_bar = 0;
+    curve->rho = 0;
+    curve->T = T;
+    curve->sigma = sigma;
 }
 
 void
-compute_rates(ArrivalHistory *history, double rho0)
+add_data(struct curve *curve, double new_data)
 {
-    double rho = rho0;
-    int n = history->count;
+    if (curve->count < BUFFER_SIZE) {
+        curve->data[curve->next_index] = new_data;
+        curve->count++;
+    } else {
+        curve->data[curve->next_index] = new_data;
 
-    for (int i = 1; i < n; i++) {
-        if (!is_lower_constrained(T, rho, i, c.lower, history)) {
-            rho = (double)(i - c.lower) / (history->arrival_times[i] -
-                                           history->arrival_times[c.lower]);
-            c.lower = i;
-            c.upper = i;
+        if (curve->c == curve->next_index) {
+            curve->c = (curve->next_index + 1) % BUFFER_SIZE;
+        }
+        if (curve->c_bar == curve->next_index) {
+            curve->c_bar = (curve->next_index + 1) % BUFFER_SIZE;
+        }
+    }
 
-            rates[num_rates++] = rho;
-        } else if (!is_upper_constrained(sigma, rho, i, c.upper, history)) {
-            rho = (double)(i - c.upper) / (history->arrival_times[i] -
-                                           history->arrival_times[c.upper]);
-            c.lower = i;
-            c.upper = i;
+    
+    curve->next_index = (curve->next_index + 1) % BUFFER_SIZE;
+}
 
-            rates[num_rates++] = rho;
-        } else {
-            update_critical(rho, &c, i, history);
+void
+process_data(struct curve *curve)
+{
+    if (curve->count < 2) {
+        printf("Недостаточно данных для обработки\n");
+    }
+
+    int start_index = (curve->next_index - curve->count + BUFFER_SIZE) % BUFFER_SIZE;
+
+    while (curve->n < curve->count - 1) {
+        curve->n++;
+        int current_n = (start_index + curve->n) % BUFFER_SIZE;
+        int current_c = (start_index + curve->c) % BUFFER_SIZE;
+        int current_c_bar = (start_index + curve->c_bar) % BUFFER_SIZE;
+
+        
+        double xn = curve->data[current_n];
+        double xc = curve->data[current_c];
+
+        double xc_bar = curve->data[current_c_bar];
+
+        bool lower_ok = curve->n >= curve->rho * (xn - xc - curve->T) + curve->c;
+        bool upper_ok = curve->n <= curve->rho * (xn - xc_bar) + curve->sigma + curve->c_bar;
+
+        if (!lower_ok) {
+            printf("WARNING: Нижнее ограничение нарушено в точке %d\n", curve->n);
+            curve->rho = (curve->n - curve->c) / (xn - xc);
+            curve->c = curve->c_bar = curve->n;
+        } else if (!upper_ok) {
+            printf("WARNING: Верхнее ограничение нарушено в точке %d\n", curve->n);
+            curve->rho = (curve->n - curve->c_bar) / (xn - xc_bar);
+            curve->c = curve->c_bar = curve->n;
         }
     }
 }

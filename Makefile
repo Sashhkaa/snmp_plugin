@@ -1,32 +1,40 @@
-CC = gcc  # или g++ если вам действительно нужен C++
-CFLAGS = -Wall -Wextra -I$(UTHASH_PATH)
+CC = gcc
+CFLAGS = -Wall -Wextra
 CFLAGS += -I./src
 CFLAGS += -Iuthash/src
 CFLAGS += -I/usr/include/net-snmp
-LDFLAGS = -lnetsnmp 
+LDFLAGS = -lnetsnmp -lm
 
-TARGET = my_program
-SRCDIR = ./src
-SRC = $(SRCDIR)/agent.c \
-      $(SRCDIR)/main.c
+MAIN_TARGET = my_program
+MAIN_SRCS = src/agent.c src/main.c src/algo.c
+MAIN_OBJS = $(MAIN_SRCS:.c=.o)
 
-CLI_SRCS = src/api.c
-CLI_OBJS = $(CLI_SRCS:.c=.o)
-OBJS = $(SRC:.c=.o)
+API_TARGET = api_program
+API_SRCS = src/api.c src/agent.c src/algo.c
+API_OBJS = $(API_SRCS:.c=.o)
 
-all: $(TARGET)
+COMMON_SRCS = src/algo.c
+COMMON_OBJS = $(COMMON_SRCS:.c=.o)
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
+.PHONY: all clean install uninstall
+
+all: $(MAIN_TARGET) $(API_TARGET)
+
+$(MAIN_TARGET): $(MAIN_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(MAIN_OBJS) $(LDFLAGS)
+
+$(API_TARGET): $(API_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(API_OBJS) $(LDFLAGS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(CLI_OBJS) $(TARGET)
+	rm -f $(MAIN_OBJS) $(API_OBJS) $(MAIN_TARGET) $(API_TARGET)
 
-install:
-	install -m 755 $(TARGET) /usr/local/bin/
+install: all
+	install -m 755 $(MAIN_TARGET) /usr/local/bin/
+	install -m 755 $(API_TARGET) /usr/local/bin/
 	cp service/my_agent.service /etc/systemd/system/
 	systemctl daemon-reload
 	systemctl enable my_agent
@@ -37,5 +45,5 @@ uninstall:
 	systemctl disable my_agent
 	rm -f /etc/systemd/system/my_agent.service
 	systemctl daemon-reload
-
-.PHONY: all clean install uninstall
+	rm -f /usr/local/bin/$(MAIN_TARGET)
+	rm -f /usr/local/bin/$(API_TARGET)

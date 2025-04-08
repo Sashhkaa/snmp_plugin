@@ -3,7 +3,9 @@ Description=SNMP agent
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/my_agent
+ExecStart=/usr/local/bin/snmp_agent
+StandardOutput=file:/var/log/snmp_agent.log
+StandardError=file:/var/log/snmp_agent_error.log
 Restart=on-failure
 User=nobody
 Group=nogroup

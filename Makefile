@@ -26,6 +26,8 @@ $(MAIN_TARGET): $(MAIN_OBJS)
 $(API_TARGET): $(API_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(API_OBJS) $(LDFLAGS)
 
+
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -33,17 +35,18 @@ clean:
 	rm -f $(MAIN_OBJS) $(API_OBJS) $(MAIN_TARGET) $(API_TARGET)
 
 install: all
+	cp my_program /usr/local/bin/snmp_agent
 	install -m 755 $(MAIN_TARGET) /usr/local/bin/
 	install -m 755 $(API_TARGET) /usr/local/bin/
-	cp service/my_agent.service /etc/systemd/system/
+	cp service/snmp_agent.service /etc/systemd/system/
 	systemctl daemon-reload
-	systemctl enable my_agent
-	systemctl start my_agent
+	systemctl enable snmp_agent
+	systemctl start snmp_agent
 
 uninstall:
-	systemctl stop my_agent
-	systemctl disable my_agent
-	rm -f /etc/systemd/system/my_agent.service
+	systemctl stop snmp_agent
+	systemctl disable snmp_agent
+	rm -f /etc/systemd/system/snmp_agent.service
 	systemctl daemon-reload
 	rm -f /usr/local/bin/$(MAIN_TARGET)
 	rm -f /usr/local/bin/$(API_TARGET)

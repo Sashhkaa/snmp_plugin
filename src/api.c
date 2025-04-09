@@ -4,10 +4,6 @@
 #include <ctype.h>
 #include "agent.h"
 
-struct ctl_context {
-    int argc;
-    char **argv;
-};
 
 static void
 print_help(void)
@@ -67,13 +63,17 @@ generate_id(const char *str1, int der, int num)
 
 /*
  * add-conn ip-addr tx/rx int-id timeout "community string"
- */
+*/
 void
-create_conneection(struct ctl_context *ctx)
+create_conneection(int argc, char **argv)
 {
+    if (argc != 7) {
+        printf("invalid syntax.");
+        return;
+    }
     struct client_conn *client = init_client();
 
-    const char *ip_addr = ctx->argv[2];
+    const char *ip_addr = argv[2];
 
     if (!ip_addr || !is_valid_ipv4(ip_addr)) {
         fprintf(stderr, "Error: Invalid IPv4 address\n");
@@ -82,14 +82,14 @@ create_conneection(struct ctl_context *ctx)
 
     client->session.peername = strdup(ip_addr);
 
-    client->sett.direction = !strcmp(ctx->argv[3], "tx") ?
+    client->sett.direction = !strcmp(argv[3], "tx") ?
                              TX_TRANSMIT : RX_RECIVE;
 
-    client->sett.int_id = (int8_t)strtol(ctx->argv[4], NULL, 10);
+    client->sett.int_id = (int8_t)strtol(argv[4], NULL, 10);
 
-    client->sett.timeout = (int8_t)strtol(ctx->argv[5], NULL, 10);
+    client->sett.timeout = (int8_t)strtol(argv[5], NULL, 10);
 
-    char *community = ctx->argv[6];
+    char *community = argv[6];
     if (strlen(community) <= 8) {
         fprintf(stderr, "Community len should have at least 8 symbols. \n");
         return;
@@ -97,6 +97,7 @@ create_conneection(struct ctl_context *ctx)
 
     client->session.securityName = community;
     client->session.contextNameLen = strlen(community);
+
 
     client->conn_id = generate_id(client->session.peername,
                                   client->sett.direction,
@@ -111,39 +112,44 @@ create_conneection(struct ctl_context *ctx)
  * del-conn ip-addr tx/rx int-id
  */
 static void
-destroy_connetion(struct ctl_context *ctx)
+destroy_connetion(char **argv)
 {
-    const char *ip_addr = ctx->argv[2];
     int derection, int_id, conn_id;
 
-    if (ip_addr || !is_valid_ipv4(ip_addr)) {
+    const char *ip_addr = argv[2];
+
+    if (!ip_addr || !is_valid_ipv4(ip_addr)) {
         fprintf(stderr, "Error: Invalid IPv4 address\n");
         return;
     }
 
-    derection = !strcmp(ctx->argv[3], "tx") ?
+    derection = !strcmp(argv[3], "tx") ?
                             TX_TRANSMIT : RX_RECIVE;
 
-    int_id = (int8_t)strtol(ctx->argv[4], NULL, 10);
+    int_id = (int8_t)strtol(argv[4], NULL, 10);
 
     conn_id = generate_id(ip_addr, derection, int_id);
 
     detach_from_connections_list(conn_id);
 }
 
+
+static void
+show_list_connections()
+{
+
+}
+
 int
 main(int argc, char **argv)
 {
-    struct ctl_context ctx = {
-        .argc = argc,
-        .argv = argv
-    };
-
-    if (!strcmp("add-conn", ctx.argv[1])) {
-        create_conneection(&ctx);
-    } else if (!strcmp("del-conn", ctx.argv[2])) {
-        destroy_connetion(&ctx);
-    } else if (!strcmp("-h", ctx.argv[1])) {
+    if (!strcmp("add-conn", argv[1])) {
+        create_conneection(argc, argv);
+    } else if (!strcmp("list-conn", argv[1])) {
+       show_list_connections(); 
+    } else if (!strcmp("del-conn", argv[1])) {
+       destroy_connetion(argv); 
+    } else if (!strcmp("--help", argv[1])) {
         print_help();
     }
 }

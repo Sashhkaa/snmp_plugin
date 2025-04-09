@@ -5,7 +5,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include "agent.h"
-
+#include <errno.h>
+#include <sys/file.h>
 
 /* TODO: сделать че то с этим кринжем. */
 const char *passphrase = "SecurePass123";
@@ -14,7 +15,16 @@ const char *passphrase = "SecurePass123";
 struct conn_hash *conns_hash = NULL;
 
 /* hosts that we have not completed */
-int active_hosts;
+volatile sig_atomic_t active_hosts = 1;
+
+FILE *db = NULL;
+
+#define PEERNAME_LEN 256
+
+struct conn_entry_serialized {
+    int conn_id;
+    char peername[PEERNAME_LEN];
+};
 
 static void
 send_pdu(struct client_conn *client)
@@ -25,24 +35,39 @@ send_pdu(struct client_conn *client)
     oid anOID[MAX_OID_LEN];
 
     pdu = snmp_pdu_create(SNMP_MSG_GET);
+    if (!pdu) {
+        snmp_log(LOG_ERR, "Failed to create PDU\n");
+        return;
+    }
 
     snprintf(oid_str, MAX_OID_LEN, ".1.3.6.1.2.1.2.2.1.%d.%d",
              client->sett.direction == TX_TRANSMIT ? 16 : 10,
              client->sett.int_id);
 
     if (!read_objid(oid_str, anOID, &anOID_len)) {
-        snmp_log(LOG_ERR, "Неверный OID\n");
+        snmp_log(LOG_ERR, "Invalid OID format: %s\n", oid_str);
         snmp_free_pdu(pdu);
         return;
     }
 
     snmp_add_null_var(pdu, anOID, anOID_len);
 
-    if (snmp_send(client->ss, pdu) == 0) {
-        snmp_log(LOG_ERR, "error while send pdu to client\n");
+    if (!client->ss) {
+        snmp_log(LOG_ERR, "SNMP session is not open.\n");
         snmp_free_pdu(pdu);
+        return;
+    }
+
+    int send_result = snmp_send(client->ss, pdu);
+    if (send_result == 0) {
+        snmp_log(LOG_ERR, "Error while sending PDU to client. SNMP error: %s\n", snmp_errstring(snmp_errno));
+        snmp_free_pdu(pdu);
+        return;
+    } else {
+        snmp_log(LOG_DEBUG, "PDU successfully sent.\n");
     }
 }
+
 
 double
 extract_oid_value(netsnmp_pdu *pdu)
@@ -73,8 +98,8 @@ extract_oid_value(netsnmp_pdu *pdu)
 
 /* Callback function. */
 int
-asynch_response(int operation, struct snmp_session *sp, int reqid,
-                netsnmp_pdu *pdu, void *magic)
+asynch_response(int operation, struct snmp_session *sp,
+                int reqid, netsnmp_pdu *pdu, void *magic)
 {
     struct client_conn *client = (struct client_conn *)magic;
     double data;
@@ -87,7 +112,7 @@ asynch_response(int operation, struct snmp_session *sp, int reqid,
         add_data(&client->curve, data);
         process_data(&client->curve);
     } else {
-        snmp_log(LOG_ERR, "error while receiving message.\n");
+        snmp_log(LOG_ERR, "Ошибка при получении сообщения.\n");
     }
 
     send_pdu(client);
@@ -127,6 +152,55 @@ setup_security_param(struct snmp_session *session)
 }
 
 void
+dump_connections(FILE *file)
+{
+    struct conn_hash *current, *tmp;
+    struct conn_entry_serialized entry;
+
+    flock(fileno(file), LOCK_EX);
+
+    HASH_ITER(hh, conns_hash, current, tmp) {
+        memset(&entry, 0, sizeof(entry));
+        entry.conn_id = current->conn_id;
+        strncpy(entry.peername, current->client->session.peername, PEERNAME_LEN - 1);
+
+        fwrite(&entry, sizeof(entry), 1, file);
+    }
+
+    fflush(file);
+    flock(fileno(file), LOCK_UN);
+}
+
+/*  to do: add shmem instead. */
+void
+get_connections(FILE *file)
+{
+    struct conn_entry_serialized entry;
+
+    flock(fileno(file), LOCK_SH);
+
+    while (fread(&entry, sizeof(entry), 1, file) == 1) {
+        struct client_conn *client = init_client();
+
+        client->conn_id = entry.conn_id;
+        client->session.peername = strdup(entry.peername);
+        attach_to_connections_list(client);
+    }
+
+    flock(fileno(file), LOCK_UN);
+}
+
+static void
+print_connections()
+{
+    struct conn_hash *current, *tmp;
+
+    HASH_ITER (hh, conns_hash, current, tmp) {
+        fprintf(stderr, "client = %s\n", current->client->session.peername);
+    }
+}
+
+void
 attach_to_connections_list(struct client_conn *client)
 {
     struct conn_hash *conn_hash;
@@ -138,13 +212,36 @@ attach_to_connections_list(struct client_conn *client)
         return;
     }
 
-    conn_hash = (struct conn_hash *)calloc(1, sizeof(struct conn_hash));
+    conn_hash = calloc(1, sizeof(struct conn_hash));
     conn_hash->conn_id = client->conn_id;
     conn_hash->client = client;
 
     HASH_ADD_INT(conns_hash, conn_id, conn_hash);
+
+    FILE *db = fopen("/tmp/db2.txt", "wb");
+    if (!db) {
+        fprintf(stderr, "errno = %d (%s)\n", errno, strerror(errno));
+        return;
+    }
+
+    dump_connections(db);
+    fclose(db);
 }
 
+void
+sync_connections_from_file()
+{
+    FILE *db = fopen("/tmp/db2.txt", "rb");
+    if (!db) {
+        fprintf(stderr, "errno = %d (%s)\n", errno, strerror(errno));
+        return;
+    }
+
+    get_connections(db);
+    fclose(db);
+
+    print_connections();
+}
 
 void
 init_connection(struct client_conn *client)
@@ -174,32 +271,46 @@ init_connection(struct client_conn *client)
 static struct conn_hash *
 lookup_connection(int conn_id)
 {
-    struct conn_hash *conn_hash;
+    struct conn_hash *current, *tmp;
 
-    HASH_FIND_INT(conns_hash, &conn_id, conn_hash);
+    HASH_ITER(hh, conns_hash, current, tmp) {
+        if (current->conn_id == conn_id) {
+            return current;
+        }
+    }
 
-    return conn_hash;
+    return NULL;
 }
 
 void
 detach_from_connections_list(int conn_id)
 {
-    struct conn_hash *conn_hash;
-
-    conn_hash = lookup_connection(conn_id);
+    struct conn_hash *conn_hash = lookup_connection(conn_id);
 
     if (!conn_hash) {
-        snmp_log(LOG_ERR, "Connetction doesn't exists. \n");
+        snmp_log(LOG_ERR, "Connection doesn't exist (conn_id = %d).\n", conn_id);
         return;
     }
 
-    active_hosts--;
-    
+    if (conn_hash->client) {
+        if (conn_hash->client->session.peername) {
+            free(conn_hash->client->session.peername);
+            conn_hash->client->session.peername = NULL;
+        }
+
+        if (conn_hash->client->ss) {
+            snmp_close(conn_hash->client->ss);
+            conn_hash->client->ss = NULL;
+        }
+
+        free(conn_hash->client);
+        conn_hash->client = NULL;
+    }
+
     HASH_DEL(conns_hash, conn_hash);
-    
-    free(conn_hash->client->ss);
-    free(conn_hash->client);
     free(conn_hash);
+
+    active_hosts--;
 }
 
 struct client_conn *
@@ -220,32 +331,18 @@ destroy_connections()
     struct conn_hash *current, *tmp;
 
     HASH_ITER(hh, conns_hash, current, tmp) {
+        fprintf(stderr, "destroy %s", current->client->session.peername); 
         HASH_DEL(conns_hash, current);
         free(current->client->ss);
         free(current);
     }
-
-
 }
 
 void
-main_loop()
+main_loop(int keep_running)
 {
-    while (active_hosts) {
-        int fds = 0, block = 1;
-        fd_set fdset;
-        struct timeval timeout;
-
-        FD_ZERO(&fdset);
-        snmp_select_info(&fds, &fdset, &timeout, &block);
-
-        
-        fds = select(fds, &fdset, NULL, NULL, block ? NULL : &timeout);
-
-        if (fds) {
-            snmp_read(&fdset);
-        } else { 
-            snmp_timeout();
-        }
+    while (active_hosts && keep_running) {
+        sync_connections_from_file();
+        sleep(5);
     }
 }

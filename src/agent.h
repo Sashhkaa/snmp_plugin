@@ -3,6 +3,9 @@
 #include <net-snmp/net-snmp-includes.h>
 #include "../uthash/src/uthash.h"
 #include "algo.h"
+#include <signal.h>
+
+extern volatile sig_atomic_t active_hosts;
 
 enum direction {
     TX_TRANSMIT,
@@ -43,6 +46,7 @@ void destroy_clinet(struct client_conn *client);
 void init_connection(struct client_conn *client);
 void destroy_connection();
 void destroy_connections();
+void list_connections();
 void attach_to_connections_list(struct client_conn *client);
 void detach_from_connections_list(int conn_id);
-void main_loop(void);
+void main_loop(int keep_running);

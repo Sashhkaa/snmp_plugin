@@ -4,11 +4,13 @@ After=network.target
 
 [Service]
 ExecStart=/usr/local/bin/snmp_agent
-StandardOutput=file:/var/log/snmp_agent.log
-StandardError=file:/var/log/snmp_agent_error.log
+StandardOutput=journal
+StandardError=journal
 Restart=on-failure
 User=nobody
 Group=nogroup
+TimeoutStopSec=20
+KillSignal=SIGTERM
 
 [Install]
 WantedBy=multi-user.target

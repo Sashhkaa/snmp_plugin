@@ -5,11 +5,18 @@
 #include <signal.h>
 #include <stdio.h>
 #include "agent.h"
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
 
-volatile sig_atomic_t keep_running = 1;
+static volatile sig_atomic_t keep_running = 1;
 
 void handle_signal(int signal) {
-    keep_running = 0;
+    if (signal == SIGTERM || signal == SIGINT) {
+        fprintf(stderr, "Received signal %d, shutting down...\n", signal);
+        keep_running = 0;
+        active_hosts = 0;
+    }
 }
 
 int
@@ -19,14 +26,13 @@ main()
     signal(SIGTERM, handle_signal);
     signal(SIGINT, handle_signal);
 
-    init_snmp("snmpapp");
-
     /* main loop. */
     while (keep_running) {
-        main_loop();
+        main_loop(keep_running);
     }
 
     destroy_connections();
 
     snmp_shutdown("snmpapp");
+
 }

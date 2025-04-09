@@ -44,6 +44,7 @@ install: all
 	systemctl start snmp_agent
 
 uninstall:
+	rm -rf /usr/local/bin/snmp_agent
 	systemctl stop snmp_agent
 	systemctl disable snmp_agent
 	rm -f /etc/systemd/system/snmp_agent.service
